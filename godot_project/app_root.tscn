@@ -1,0 +1,1007 @@
+[gd_scene load_steps=12 format=2]
+
+[ext_resource path="res://icon_day.png" type="Texture" id=1]
+[ext_resource path="res://icon_night.png" type="Texture" id=2]
+
+[sub_resource type="GDScript" id=5]
+script/source = "extends Node2D
+
+
+# Declare member variables here. Examples:
+# var a = 2
+# var b = \"text\"
+
+var is_day : bool;
+var times_trained : int = 1;
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	init_training_mode();
+	pass # Replace with function body.
+
+#----------------------------------------------------------------------------
+
+func init_training_mode():
+	$btn_train.show();
+	$btn_classify.hide();
+	$sldr_tolerance.hide();
+	$lbl_tolerance.hide();
+	$IconDay.hide();
+	$IconNight.hide();
+	$btn_classify.hide();
+	$btn_punishmodel.hide();
+	return;
+
+#----------------------------------------------------------------------------
+
+func init_classifying_mode():
+	$btn_train.hide();
+	$btn_classify.show();
+	$sldr_tolerance.show();
+	$lbl_tolerance.show();
+	$IconDay.hide();
+	$IconNight.hide();
+	$btn_classify.show();
+	$btn_punishmodel.hide();
+	
+"
+
+[sub_resource type="GDScript" id=2]
+script/source = "extends Button;
+
+#---------------------------------------------------
+
+func _ready():
+	text = \"Model Training Mode\";
+	pressed = false;
+	return;
+
+#---------------------------------------------------
+
+func _toggled(button_pressed):
+	#get_parent().
+	if (button_pressed):
+		get_parent().init_classifying_mode();
+		text = \"Classification Mode\";
+	else:
+		get_parent().init_training_mode();
+		text = \"Model Training Mode\";
+	
+	$\"../txrect_currimage\".hide();
+	
+	return;
+"
+
+[sub_resource type="ImageTexture" id=7]
+size = Vector2( 2, 2 )
+
+[sub_resource type="GDScript" id=3]
+script/source = "extends ColorRect
+
+# this is an individual neuron; it paints to the display so you can
+# see what the training model looks like inside the program's head.
+
+#------------------------------------------------------------------------------
+
+func _ready():
+	randomize();
+	color = Color(randf(),randf(),randf());
+	return;
+
+#------------------------------------------------------------------------------
+
+func train(input : Color, times_trained : int):
+	self.color.r = ((self.color.r * times_trained ) + input.r) / float(times_trained + 1);
+	self.color.g = ((self.color.g * times_trained ) + input.g) / float(times_trained + 1);
+	self.color.b = ((self.color.b * times_trained ) + input.b) / float(times_trained + 1);
+
+#------------------------------------------------------------------------------
+
+func loss(input : Color):
+	var r_dist = color.r - input.r; 
+	var g_dist = color.g - input.g; 
+	var b_dist = color.b - input.b; 
+	
+	var pythag_distance = sqrt((r_dist * r_dist) + (g_dist * g_dist) + (b_dist * b_dist));
+	
+	if (pythag_distance > $\"../../sldr_tolerance\".value):
+		# night-time
+		return 0.0;
+
+	# daytime
+	return 1;
+"
+
+[sub_resource type="GDScript" id=4]
+script/source = "extends Label
+
+
+# Declare member variables here. Examples:
+# var a = 2
+# var b = \"text\"
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	set_process(true);
+	pass # Replace with function body.
+
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta):
+	text = \"Tolerance:  \" + str($\"../sldr_tolerance\".value);
+"
+
+[sub_resource type="GDScript" id=6]
+script/source = "extends Button
+
+
+#------------------------------------------------------------------------------
+
+func load_external_tex(path):
+	var tex_file = File.new()
+	tex_file.open(path, File.READ)
+	var bytes = tex_file.get_buffer(tex_file.get_len())
+	var img = Image.new()
+	var data = img.load_jpg_from_buffer(bytes)
+	var imgtex = ImageTexture.new()
+	imgtex.create_from_image(img)
+	print(imgtex.get_width())
+	tex_file.close()
+	return imgtex	
+
+#------------------------------------------------------------------------------
+	
+func on_file_chosen(path: String):
+	# Check if a file was selected
+	$tmp.hide();
+	if path.rstrip(\"/\") == path.get_base_dir():
+		$Alert.dialog_text = \"No filename was specified\"
+		$Alert.popup_centered();
+		$\"../txrect_currimage\".hide();
+		return
+	else:
+		$\"../txrect_currimage\".texture = load_external_tex(path);
+		$\"../txrect_currimage\".show();
+		$\"../btn_train\".disabled = false;
+		$\"../txrect_currimage\".show();
+		$\"../IconNight\".hide();
+		$\"../IconDay\".hide();
+		
+	$tmp.disconnect(\"file_selected\",self, \"on_file_chosen\");
+
+#------------------------------------------------------------------------------
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	pass # Replace with function body.
+
+#------------------------------------------------------------------------------
+
+func _pressed():
+	$tmp.connect(\"file_selected\",self, \"on_file_chosen\");
+	$tmp.show();
+	$\"../btn_classify\".disabled = false;
+
+"
+
+[sub_resource type="GDScript" id=8]
+script/source = "extends Button
+
+
+# Declare member variables here. Examples:
+# var a = 2
+# var b = \"text\"
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	disabled = true;
+	return;
+
+#---------------------------------------------------------------------------------------------------
+
+func _pressed():
+	var w = $\"../txrect_currimage\".texture.get_width();
+	var h = $\"../txrect_currimage\".texture.get_height();
+
+	var img_tmp : Image = $\"../txrect_currimage\".texture.get_data();
+	img_tmp.lock();
+
+	var stride_w = (w / 8.0);
+	var stride_h = (h / 8.0);
+	
+	for y_index in range (0,8):
+		for x_index in range (0,8):
+			var neuron_name = \"../pnl_modelcontainer/neuron_\" + str(x_index) + \"_\" + str(y_index);
+			
+			get_node(neuron_name).train(img_tmp.get_pixel(int(x_index*stride_w),int(y_index*stride_h)),get_parent().times_trained);
+	
+	disabled = true;
+	get_parent().times_trained = get_parent().times_trained + 1;
+			
+#---------------------------------------------------------------------------------------------------
+"
+
+[sub_resource type="GDScript" id=9]
+script/source = "extends Button
+
+
+# Declare member variables here. Examples:
+# var a = 2
+# var b = \"text\"
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	pass # Replace with function body.
+
+#-------------------------------------------------------------------------------
+
+func _pressed():
+	self.disabled = true;
+	
+	$\"../IconNight\".hide();
+	$\"../IconDay\".hide();
+
+	var neuron_sum : float = 0;
+	
+	var w = $\"../txrect_currimage\".texture.get_width();
+	var h = $\"../txrect_currimage\".texture.get_height();
+
+	var img_tmp : Image = $\"../txrect_currimage\".texture.get_data();
+	img_tmp.lock();
+
+	var stride_w = (w / 8.0);
+	var stride_h = (h / 8.0);
+	
+	for y_index in range (0,8):
+		for x_index in range (0,8):
+			var neuron_name = \"../pnl_modelcontainer/neuron_\" + str(x_index) + \"_\" + str(y_index);
+			
+			neuron_sum = neuron_sum + get_node(neuron_name).loss(img_tmp.get_pixel(int(x_index*stride_w),int(y_index*stride_h)));
+			
+	var dist : float = neuron_sum / 64.0;
+	
+	if ((1.0 - dist) < $\"../sldr_tolerance\".value):
+		$\"../IconDay\".show();
+		get_parent().is_day = true;
+	else:
+		$\"../IconNight\".show();
+		get_parent().is_day = false;
+		
+	$\"../btn_punishmodel\".show();
+
+"
+
+[sub_resource type="GDScript" id=10]
+script/source = "extends Button
+
+
+# Declare member variables here. Examples:
+# var a = 2
+# var b = \"text\"
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	pass # Replace with function body.
+
+
+
+func _pressed():
+	hide();
+
+	if (get_parent().is_day):
+		return;
+		
+	var w = $\"../txrect_currimage\".texture.get_width();
+	var h = $\"../txrect_currimage\".texture.get_height();
+
+	var img_tmp : Image = $\"../txrect_currimage\".texture.get_data();
+	img_tmp.lock();
+
+	var stride_w = (w / 8.0);
+	var stride_h = (h / 8.0);
+	
+	for y_index in range (0,8):
+		for x_index in range (0,8):
+			var neuron_name = \"../pnl_modelcontainer/neuron_\" + str(x_index) + \"_\" + str(y_index);
+			
+			get_node(neuron_name).train(img_tmp.get_pixel(int(x_index*stride_w),int(y_index*stride_h)),get_parent().times_trained);
+	
+	get_parent().times_trained = get_parent().times_trained + 1;
+"
+
+[node name="app_root" type="Node2D"]
+script = SubResource( 5 )
+
+[node name="btn_mode" type="Button" parent="."]
+margin_left = 18.0
+margin_top = 11.0
+margin_right = 185.0
+margin_bottom = 57.0
+toggle_mode = true
+text = "Training Mode"
+script = SubResource( 2 )
+
+[node name="pnl_currImgBG" type="Panel" parent="."]
+margin_left = 24.0
+margin_top = 80.0
+margin_right = 632.0
+margin_bottom = 488.0
+
+[node name="txrect_currimage" type="TextureRect" parent="."]
+margin_left = 32.0
+margin_top = 88.0
+margin_right = 624.0
+margin_bottom = 480.0
+rect_min_size = Vector2( 582, 392 )
+texture = SubResource( 7 )
+stretch_mode = 1
+
+[node name="pnl_modelcontainer" type="Panel" parent="."]
+margin_left = 640.0
+margin_top = 2.0
+margin_right = 1280.0
+margin_bottom = 637.0
+
+[node name="lbl_heading" type="Label" parent="pnl_modelcontainer"]
+margin_left = 232.0
+margin_top = 6.0
+margin_right = 409.0
+margin_bottom = 20.0
+text = "Current State Of The Model:"
+
+[node name="neuron_0_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 62.0
+margin_right = 88.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_1_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 62.0
+margin_right = 152.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_2_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 62.0
+margin_right = 216.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_3_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 62.0
+margin_right = 280.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_4_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 62.0
+margin_right = 344.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_5_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 62.0
+margin_right = 408.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_6_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 62.0
+margin_right = 472.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_7_0" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 62.0
+margin_right = 536.0
+margin_bottom = 79.9
+script = SubResource( 3 )
+
+[node name="neuron_7_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 126.0
+margin_right = 536.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_7_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 190.0
+margin_right = 536.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_7_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 254.0
+margin_right = 536.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_7_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 318.0
+margin_right = 536.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_7_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 382.0
+margin_right = 536.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_7_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 446.0
+margin_right = 536.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_7_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 512.0
+margin_top = 510.0
+margin_right = 536.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_6_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 126.0
+margin_right = 472.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_6_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 190.0
+margin_right = 472.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_6_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 254.0
+margin_right = 472.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_6_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 318.0
+margin_right = 472.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_6_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 382.0
+margin_right = 472.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_6_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 446.0
+margin_right = 472.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_6_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 448.0
+margin_top = 510.0
+margin_right = 472.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_5_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 126.0
+margin_right = 408.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_5_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 190.0
+margin_right = 408.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_5_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 254.0
+margin_right = 408.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_5_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 318.0
+margin_right = 408.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_5_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 382.0
+margin_right = 408.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_5_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 446.0
+margin_right = 408.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_5_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 384.0
+margin_top = 510.0
+margin_right = 408.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_4_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 126.0
+margin_right = 344.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_4_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 190.0
+margin_right = 344.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_4_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 254.0
+margin_right = 344.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_4_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 318.0
+margin_right = 344.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_4_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 382.0
+margin_right = 344.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_4_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 446.0
+margin_right = 344.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_4_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 320.0
+margin_top = 510.0
+margin_right = 344.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_3_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 126.0
+margin_right = 280.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_3_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 190.0
+margin_right = 280.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_3_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 254.0
+margin_right = 280.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_3_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 318.0
+margin_right = 280.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_3_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 382.0
+margin_right = 280.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_3_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 446.0
+margin_right = 280.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_3_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 256.0
+margin_top = 510.0
+margin_right = 280.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_2_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 126.0
+margin_right = 216.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_2_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 190.0
+margin_right = 216.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_2_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 254.0
+margin_right = 216.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_2_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 318.0
+margin_right = 216.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_2_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 382.0
+margin_right = 216.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_2_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 446.0
+margin_right = 216.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_2_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 192.0
+margin_top = 510.0
+margin_right = 216.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_1_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 126.0
+margin_right = 152.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_1_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 190.0
+margin_right = 152.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_1_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 254.0
+margin_right = 152.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_1_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 318.0
+margin_right = 152.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_1_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 382.0
+margin_right = 152.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_1_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 446.0
+margin_right = 152.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_1_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 128.0
+margin_top = 510.0
+margin_right = 152.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="neuron_0_1" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 126.0
+margin_right = 88.0
+margin_bottom = 143.9
+script = SubResource( 3 )
+
+[node name="neuron_0_2" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 190.0
+margin_right = 88.0
+margin_bottom = 207.9
+script = SubResource( 3 )
+
+[node name="neuron_0_3" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 254.0
+margin_right = 88.0
+margin_bottom = 271.9
+script = SubResource( 3 )
+
+[node name="neuron_0_4" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 318.0
+margin_right = 88.0
+margin_bottom = 335.9
+script = SubResource( 3 )
+
+[node name="neuron_0_5" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 382.0
+margin_right = 88.0
+margin_bottom = 399.9
+script = SubResource( 3 )
+
+[node name="neuron_0_6" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 446.0
+margin_right = 88.0
+margin_bottom = 463.9
+script = SubResource( 3 )
+
+[node name="neuron_0_7" type="ColorRect" parent="pnl_modelcontainer"]
+anchor_right = 0.05
+anchor_bottom = 0.06
+margin_left = 64.0
+margin_top = 510.0
+margin_right = 88.0
+margin_bottom = 527.9
+script = SubResource( 3 )
+
+[node name="sldr_tolerance" type="HSlider" parent="."]
+margin_left = 200.0
+margin_top = 40.0
+margin_right = 632.0
+margin_bottom = 64.0
+min_value = 0.1
+max_value = 0.5
+step = 0.025
+value = 0.4
+tick_count = 8
+
+[node name="lbl_tolerance" type="Label" parent="."]
+margin_left = 208.0
+margin_top = 16.0
+margin_right = 632.0
+margin_bottom = 38.0
+text = "Tolerance:"
+script = SubResource( 4 )
+
+[node name="btn_load" type="Button" parent="."]
+margin_left = 24.0
+margin_top = 496.0
+margin_right = 320.0
+margin_bottom = 536.0
+text = "Load Image"
+script = SubResource( 6 )
+
+[node name="tmp" type="FileDialog" parent="btn_load"]
+anchor_left = 0.226
+anchor_right = 0.226
+margin_left = 7.976
+margin_top = 32.0
+margin_right = 1039.98
+margin_bottom = 474.0
+popup_exclusive = true
+window_title = "Open a File"
+mode = 0
+access = 2
+filters = PoolStringArray( "*.jpg", "*.jpeg", "*.JPG", "*.JPEG" )
+show_hidden_files = true
+
+[node name="btn_train" type="Button" parent="."]
+margin_left = 24.0
+margin_top = 576.0
+margin_right = 320.0
+margin_bottom = 616.0
+text = "Train Model With Image"
+script = SubResource( 8 )
+
+[node name="btn_classify" type="Button" parent="."]
+margin_left = 24.0
+margin_top = 576.0
+margin_right = 320.0
+margin_bottom = 616.0
+text = "Is It Day Or Night In This Photo?"
+script = SubResource( 9 )
+
+[node name="IconNight" type="Sprite" parent="."]
+visible = false
+position = Vector2( 448, 560 )
+scale = Vector2( 0.578125, 0.5625 )
+texture = ExtResource( 2 )
+
+[node name="IconDay" type="Sprite" parent="."]
+visible = false
+position = Vector2( 446, 560 )
+scale = Vector2( 0.578125, 0.5625 )
+texture = ExtResource( 1 )
+
+[node name="btn_punishmodel" type="Button" parent="."]
+margin_left = 656.0
+margin_top = 581.0
+margin_right = 952.0
+margin_bottom = 629.0
+text = "Got It Wrong, \"Punish\" Model"
+script = SubResource( 10 )
